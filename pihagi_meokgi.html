@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>피하기 + 먹기</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10131a;color:#fff;font-family:system-ui,-apple-system,sans-serif}
+.wrap{max-width:900px;margin:auto;padding:20px}.top{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+h1{margin:0;font-size:26px}.stats{font-weight:800}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}
+select,button{font:inherit;border:0;border-radius:12px;padding:11px 14px;background:#252b38;color:#fff}button{cursor:pointer;background:#3b82f6;font-weight:800}
+#arena{position:relative;height:min(68vh,560px);min-height:360px;background:#171c26;border:1px solid #303746;border-radius:20px;overflow:hidden;touch-action:none}
+#player,#coin,.enemy{position:absolute}.player{width:32px;height:32px;background:#60a5fa;border-radius:9px}
+#coin{width:22px;height:22px;background:#facc15;border-radius:50%;box-shadow:0 0 0 6px #facc1530}
+.enemy{width:30px;height:30px;background:#ef4444;border-radius:9px}.boss{width:42px;height:42px;border-radius:12px}
+.msg{color:#aeb7c7;min-height:24px}.mobile{display:grid;grid-template-columns:repeat(3,58px);gap:8px;justify-content:center;margin:14px 0}
+.mobile button{height:52px;padding:0;background:#252b38}.up{grid-column:2}.down{grid-column:2}.left{grid-column:1}.right{grid-column:3}
+small{color:#8f9aab}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div><h1>⚡ 피하기 + 먹기</h1><small>코인을 먹고 빨간 적을 피하세요.</small></div>
+  <div class="stats">점수 <span id="score">0</span> · ❤️ <span id="hp">3</span></div></div>
+  <div class="controls">
+    <select id="difficulty"><option value="easy">쉬움 🟢</option><option value="normal" selected>보통 🟡</option><option value="hard">어려움 🔴</option><option value="insane">지옥 💀</option></select>
+    <button id="start">게임 시작</button><button id="reset">리셋</button>
+  </div>
+  <div id="arena"><div id="player" class="player"></div><div id="coin"></div><div id="enemy" class="enemy"></div><div id="enemy2" class="enemy boss"></div></div>
+  <div class="mobile">
+    <button class="up" data-key="up">▲</button><button class="left" data-key="left">◀</button><button class="right" data-key="right">▶</button><button class="down" data-key="down">▼</button>
+  </div>
+  <p class="msg" id="msg">방향키/WASD 또는 아래 버튼으로 이동하세요.</p>
+</div>
+<script>
+const A=document.querySelector('#arena'),P=document.querySelector('#player'),C=document.querySelector('#coin'),E=document.querySelector('#enemy'),E2=document.querySelector('#enemy2');
+const S=document.querySelector('#score'),H=document.querySelector('#hp'),M=document.querySelector('#msg'),D=document.querySelector('#difficulty');
+const cfg={easy:{speed:180,enemy:48,hp:5,n:1},normal:{speed:235,enemy:75,hp:3,n:1},hard:{speed:280,enemy:105,hp:3,n:2},insane:{speed:330,enemy:145,hp:2,n:2}};
+let x=40,y=40,cx=180,cy=120,ex=300,ey=220,x2=100,y2=300,score=0,hp=3,running=false,last=0,raf=0,keys={};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const hit=(ax,ay,as,bx,by,bs)=>Math.hypot(ax-bx,ay-by)<(as+bs)/2;
+function coin(){cx=Math.random()*Math.max(1,A.clientWidth-30);cy=Math.random()*Math.max(1,A.clientHeight-30)}
+function draw(){P.style.left=x+'px';P.style.top=y+'px';C.style.left=cx+'px';C.style.top=cy+'px';E.style.left=ex+'px';E.style.top=ey+'px';E2.style.left=x2+'px';E2.style.top=y2+'px';S.textContent=score;H.textContent=hp}
+function reset(){cancelAnimationFrame(raf);running=false;const d=cfg[D.value];score=0;hp=d.hp;x=40;y=40;ex=A.clientWidth-70;ey=A.clientHeight-70;x2=80;y2=A.clientHeight-70;E2.style.display=d.n>1?'block':'none';coin();draw();M.textContent='난이도를 고르고 게임 시작.'}
+function start(){reset();running=true;M.textContent=D.options[D.selectedIndex].text+' 시작!';last=performance.now();raf=requestAnimationFrame(loop)}
+function loop(t){if(!running)return;const d=cfg[D.value],dt=Math.min(.03,(t-last)/1000||0);last=t;
+let dx=(keys.right?1:0)-(keys.left?1:0),dy=(keys.down?1:0)-(keys.up?1:0),len=Math.hypot(dx,dy)||1;
+x=clamp(x+dx/len*d.speed*dt,0,A.clientWidth-32);y=clamp(y+dy/len*d.speed*dt,0,A.clientHeight-32);
+if(hit(x+16,y+16,28,cx+11,cy+11,20)){score++;coin()}
+function move(ox,oy,spd,size){let a=Math.atan2(y+16-(oy+size/2),x+16-(ox+size/2));return [clamp(ox+Math.cos(a)*spd*dt,0,A.clientWidth-size),clamp(oy+Math.sin(a)*spd*dt,0,A.clientHeight-size)]}
+[ex,ey]=move(ex,ey,d.enemy,30);if(d.n>1)[x2,y2]=move(x2,y2,d.enemy*1.05,42);
+if(hit(x+16,y+16,28,ex+15,ey+15,26)||(d.n>1&&hit(x+16,y+16,28,x2+21,y2+21,36))){hp--;x=40;y=40;if(hp<=0){running=false;M.textContent='게임 오버! 점수: '+score+'점'}}draw();raf=requestAnimationFrame(loop)}
+addEventListener('keydown',e=>{const k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',W:'up',s:'down',S:'down',a:'left',A:'left',d:'right',D:'right'}[e.key];if(k){keys[k]=true;e.preventDefault()}});
+addEventListener('keyup',e=>{const k={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',w:'up',W:'up',s:'down',S:'down',a:'left',A:'left',d:'right',D:'right'}[e.key];if(k)keys[k]=false});
+document.querySelectorAll('[data-key]').forEach(b=>{b.addEventListener('pointerdown',e=>{e.preventDefault();keys[b.dataset.key]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>keys[b.dataset.key]=false))});
+A.addEventListener('pointerdown',e=>{if(!running)start();const r=A.getBoundingClientRect();x=clamp(e.clientX-r.left-16,0,A.clientWidth-32);y=clamp(e.clientY-r.top-16,0,A.clientHeight-32);draw()});
+document.querySelector('#start').onclick=start;document.querySelector('#reset').onclick=reset;D.onchange=reset;reset();
+</script>
+</body>
+</html>
