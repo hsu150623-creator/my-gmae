@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>코인 러너</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101319;color:#fff;font-family:Arial,sans-serif;overflow:hidden;touch-action:none}
+#app{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:18px}
+.screen{width:min(900px,100%);text-align:center}
+.hidden{display:none!important}
+h1{font-size:clamp(42px,11vw,78px);margin:0 0 8px;font-weight:900;letter-spacing:-3px}
+.subtitle{color:#aeb7c4;font-size:16px;margin-bottom:30px}
+.menu{display:flex;flex-direction:column;gap:12px;width:min(330px,100%);margin:auto}
+.menu button,.difficulty button{min-height:52px;border:1px solid #46505e;border-radius:12px;background:#202631;color:#fff;font-size:18px;font-weight:700}
+.menu button:active,.difficulty button:active{transform:scale(.98);background:#303846}
+.coinIcon{width:64px;height:64px;background:#ffd43b;border-radius:50%;margin:0 auto 18px;box-shadow:0 0 25px #ffd43b66}
+.info{margin-top:28px;color:#9da7b5;font-size:14px;line-height:1.7}
+#gameScreen{width:min(900px,100%)}
+#top{padding:6px 0 10px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+#hud{font-size:14px}
+#status{color:#aeb7c4}
+#game{position:relative;width:100%;height:min(68vh,650px);min-height:380px;background:#18202a;border:2px solid #333;border-radius:12px;overflow:hidden}
+#player{position:absolute;width:34px;height:34px;background:#2d9cff;border-radius:8px}
+.coin{position:absolute;width:24px;height:24px;background:#ffd43b;border-radius:50%;box-shadow:0 0 12px #ffd43b}
+.enemy{position:absolute;background:#ff3b3b;border-radius:7px}
+#controls{display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:50px 50px;gap:5px;justify-content:center;margin-top:8px}
+#controls button{border:0;border-radius:10px;background:#333;color:#fff;font-size:22px;font-weight:bold}
+#controls button:active{background:#555}
+#up{grid-column:2}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
+.smallBtn{padding:8px 12px;border:1px solid #46505e;border-radius:8px;background:#202631;color:#fff}
+#difficultySelect{background:#202631;color:#fff;border:1px solid #46505e;border-radius:8px;padding:7px}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <section id="startScreen" class="screen">
+    <div class="coinIcon"></div>
+    <h1>COIN RUNNER</h1>
+    <div class="subtitle">코인을 먹어야 움직일 수 있다.</div>
+    <div class="menu">
+      <button id="playBtn">▶ 게임 시작</button>
+      <button id="howBtn">❔ 게임 방법</button>
+      <button id="difficultyBtn">⚙ 난이도</button>
+    </div>
+    <div id="menuInfo" class="info">코인을 먹고 움직이는 동안 빨간 적을 피하세요.</div>
+  </section>
+
+  <section id="gameScreen" class="hidden">
+    <div id="top">
+      <div id="hud">점수 <b id="score">0</b>　❤️ <b id="hp">3</b>　<span id="status">🟡 코인을 먹어야 움직임</span></div>
+      <button id="menuBtn" class="smallBtn">메뉴</button>
+    </div>
+    <div id="game">
+      <div id="player"></div>
+      <div id="coins"></div>
+      <div id="enemies"></div>
+    </div>
+    <div id="controls">
+      <button id="up">▲</button>
+      <button id="left" class="left">◀</button>
+      <button id="down" class="down">▼</button>
+      <button id="right" class="right">▶</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+const startScreen=document.getElementById('startScreen');
+const gameScreen=document.getElementById('gameScreen');
+const game=document.getElementById('game');
+const player=document.getElementById('player');
+const coinsBox=document.getElementById('coins');
+const enemiesBox=document.getElementById('enemies');
+const scoreEl=document.getElementById('score');
+const hpEl=document.getElementById('hp');
+const statusEl=document.getElementById('status');
+const menuInfo=document.getElementById('menuInfo');
+
+const settings={
+ easy:{speed:190,hp:5,enemies:1,coinTime:1.8},
+ normal:{speed:240,hp:3,enemies:1,coinTime:1.35},
+ hard:{speed:285,hp:3,enemies:2,coinTime:1.15},
+ hell:{speed:330,hp:2,enemies:2,coinTime:.9}
+};
+let difficulty='normal',cfg,px,py,score,hp,running=false,canMove=false,moveUntil=0,last=0;
+let keys={up:false,down:false,left:false,right:false},coins=[],enemies=[];
+
+function rnd(a,b){return Math.random()*(b-a)+a}
+function rect(el){return{x:el.offsetLeft,y:el.offsetTop,w:el.offsetWidth,h:el.offsetHeight}}
+function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
+
+function reset(){
+  cfg=settings[difficulty];
+  px=game.clientWidth/2-17; py=game.clientHeight/2-17;
+  score=0; hp=cfg.hp; canMove=false; moveUntil=0;
+  player.style.left=px+'px'; player.style.top=py+'px';
+  scoreEl.textContent=score; hpEl.textContent=hp;
+  coinsBox.innerHTML=''; enemiesBox.innerHTML=''; coins=[]; enemies=[];
+  placeCoin(); makeEnemies();
+  statusEl.textContent='🟡 코인을 먹어야 움직임';
+}
+function placeCoin(){
+  const c=document.createElement('div'); c.className='coin';
+  c.style.left=rnd(30,Math.max(31,game.clientWidth-54))+'px';
+  c.style.top=rnd(30,Math.max(31,game.clientHeight-54))+'px';
+  coinsBox.appendChild(c); coins=[c];
+}
+function makeEnemies(){
+  for(let i=0;i<cfg.enemies;i++){
+    const e=document.createElement('div'); e.className='enemy';
+    const size=difficulty==='hell'?38:32;
+    e.style.width=size+'px'; e.style.height=size+'px';
+    e.style.left=rnd(80,Math.max(81,game.clientWidth-size-20))+'px';
+    e.style.top=rnd(50,Math.max(51,game.clientHeight-size-20))+'px';
+    e.vx=rnd(-1,1)||.7; e.vy=rnd(-1,1)||.7;
+    enemiesBox.appendChild(e); enemies.push(e);
+  }
+}
+function activateMove(){
+  canMove=true; moveUntil=performance.now()+cfg.coinTime*1000;
+  statusEl.textContent='🟢 이동 가능!';
+}
+function loseHp(){
+  hp--; hpEl.textContent=hp;
+  px=game.clientWidth/2-17; py=game.clientHeight/2-17;
+  canMove=false; moveUntil=0;
+  if(hp<=0){running=false;statusEl.textContent='💀 게임 오버';setTimeout(showMenu,700)}
+  else statusEl.textContent='🔴 맞음! 코인을 먹어야 움직임';
+}
+function loop(now){
+  if(!running)return;
+  const dt=Math.min((now-last)/1000,.04); last=now;
+  if(canMove&&now>=moveUntil){canMove=false;statusEl.textContent='⛔ 이동 정지! 코인을 먹어야 함'}
+  if(canMove){
+    let dx=(keys.right?1:0)-(keys.left?1:0);
+    let dy=(keys.down?1:0)-(keys.up?1:0);
+    if(dx||dy){const len=Math.hypot(dx,dy);px+=dx/len*cfg.speed*dt;py+=dy/len*cfg.speed*dt}
+  }
+  px=Math.max(0,Math.min(game.clientWidth-34,px));
+  py=Math.max(0,Math.min(game.clientHeight-34,py));
+  player.style.left=px+'px';player.style.top=py+'px';
+
+  for(const e of enemies){
+    let ex=e.offsetLeft+e.vx*cfg.speed*.22*dt*60;
+    let ey=e.offsetTop+e.vy*cfg.speed*.22*dt*60;
+    if(ex<0||ex+e.offsetWidth>game.clientWidth)e.vx*=-1;
+    if(ey<0||ey+e.offsetHeight>game.clientHeight)e.vy*=-1;
+    e.style.left=Math.max(0,Math.min(game.clientWidth-e.offsetWidth,ex))+'px';
+    e.style.top=Math.max(0,Math.min(game.clientHeight-e.offsetHeight,ey))+'px';
+    if(hit({x:px,y:py,w:34,h:34},rect(e))){loseHp();if(!running)return}
+  }
+  if(coins[0]&&hit({x:px,y:py,w:34,h:34},rect(coins[0]))){
+    coins[0].remove();coins=[];score++;scoreEl.textContent=score;activateMove();
+    setTimeout(()=>{if(running&&!coins.length)placeCoin()},150);
+  }
+  requestAnimationFrame(loop);
+}
+function startGame(){
+  startScreen.classList.add('hidden');gameScreen.classList.remove('hidden');
+  reset();running=true;last=performance.now();requestAnimationFrame(loop);
+}
+function showMenu(){
+  running=false; gameScreen.classList.add('hidden'); startScreen.classList.remove('hidden');
+  menuInfo.textContent='코인을 먹고 움직이는 동안 빨간 적을 피하세요.';
+}
+document.getElementById('playBtn').onclick=startGame;
+document.getElementById('howBtn').onclick=()=>{
+  menuInfo.innerHTML='🟡 코인을 먹으면 잠시 이동 가능<br>🔴 빨간 적에 닿으면 HP 감소<br>🎯 코인을 많이 먹을수록 점수 증가';
+};
+document.getElementById('difficultyBtn').onclick=()=>{
+  const names={easy:'쉬움',normal:'보통',hard:'어려움',hell:'지옥'};
+  difficulty=difficulty==='easy'?'normal':difficulty==='normal'?'hard':difficulty==='hard'?'hell':'easy';
+  menuInfo.textContent='난이도: '+names[difficulty]+' (버튼을 누를 때마다 변경)';
+};
+document.getElementById('menuBtn').onclick=showMenu;
+
+function setKey(k,v){keys[k]=v}
+const map={up:'up',down:'down',left:'left',right:'right'};
+for(const id in map){
+  const b=document.getElementById(id);
+  b.addEventListener('pointerdown',e=>{e.preventDefault();setKey(map[id],true)});
+  b.addEventListener('pointerup',e=>{e.preventDefault();setKey(map[id],false)});
+  b.addEventListener('pointercancel',()=>setKey(map[id],false));
+  b.addEventListener('pointerleave',()=>setKey(map[id],false));
+}
+addEventListener('keydown',e=>{
+  const k={ArrowUp:'up',w:'up',ArrowDown:'down',s:'down',ArrowLeft:'left',a:'left',ArrowRight:'right',d:'right'}[e.key];
+  if(k){e.preventDefault();setKey(k,true)}
+});
+addEventListener('keyup',e=>{
+  const k={ArrowUp:'up',w:'up',ArrowDown:'down',s:'down',ArrowLeft:'left',a:'left',ArrowRight:'right',d:'right'}[e.key];
+  if(k)setKey(k,false);
+});
+</script>
+</body>
+</html>
