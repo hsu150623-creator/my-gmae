@@ -31,6 +31,11 @@ h1{font-size:clamp(42px,11vw,78px);margin:0 0 8px;font-weight:900;letter-spacing
 #up{grid-column:2}.left{grid-column:1;grid-row:2}.down{grid-column:2;grid-row:2}.right{grid-column:3;grid-row:2}
 .smallBtn{padding:8px 12px;border:1px solid #46505e;border-radius:8px;background:#202631;color:#fff}
 #difficultySelect{background:#202631;color:#fff;border:1px solid #46505e;border-radius:8px;padding:7px}
+
+.powerItem{position:absolute;width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;box-shadow:0 0 12px rgba(255,255,255,.35)}
+.power-heal{background:#ff6b81}.power-speed{background:#65d6ff}.power-shield{background:#c78cff}
+.shielded{outline:4px solid #d59cff;box-shadow:0 0 18px #d59cff}
+#shopScreen button{min-height:52px}
 </style>
 </head>
 <body>
@@ -43,7 +48,7 @@ h1{font-size:clamp(42px,11vw,78px);margin:0 0 8px;font-weight:900;letter-spacing
     <div class="menu">
       <button id="playBtn">▶ 게임 시작</button>
       <button id="howBtn">❔ 게임 방법</button>
-      <button id="difficultyBtn">⚙ 난이도</button>
+      <button id="difficultyBtn">⚙ 난이도</button><button id="shopBtn">🛒 상점</button>
     </div>
     <div id="menuInfo" class="info">코인을 먹고 움직이는 동안 빨간 적을 피하세요.</div>
   </section>
@@ -68,9 +73,11 @@ h1{font-size:clamp(42px,11vw,78px);margin:0 0 8px;font-weight:900;letter-spacing
 
 </div>
 
+
 <script>
 const startScreen=document.getElementById('startScreen');
 const gameScreen=document.getElementById('gameScreen');
+const shopScreen=document.getElementById('shopScreen');
 const game=document.getElementById('game');
 const player=document.getElementById('player');
 const coinsBox=document.getElementById('coins');
@@ -79,105 +86,172 @@ const scoreEl=document.getElementById('score');
 const hpEl=document.getElementById('hp');
 const statusEl=document.getElementById('status');
 const menuInfo=document.getElementById('menuInfo');
+const powerStatus=document.getElementById('powerStatus');
+const comboStatus=document.getElementById('comboStatus');
+const shopCoins=document.getElementById('shopCoins');
 
 const settings={
- easy:{speed:190,hp:5,enemies:1,coinTime:1.8},
- normal:{speed:240,hp:3,enemies:1,coinTime:1.35},
- hard:{speed:285,hp:3,enemies:2,coinTime:1.15},
- hell:{speed:330,hp:2,enemies:2,coinTime:.9}
+ easy:{speed:110,hp:5,enemies:1,coinTime:1.8},
+ normal:{speed:150,hp:3,enemies:1,coinTime:1.35},
+ hard:{speed:185,hp:3,enemies:2,coinTime:1.15},
+ hell:{speed:220,hp:2,enemies:2,coinTime:.9}
 };
+
 let difficulty='normal',cfg,px,py,score,hp,running=false,canMove=false,moveUntil=0,last=0;
-let keys={up:false,down:false,left:false,right:false},coins=[],enemies=[];
+let keys={up:false,down:false,left:false,right:false},coins=[],enemies=[],items=[];
+let combo=0,lastCoinTime=0,shieldUntil=0,speedUntil=0;
+let best=Number(localStorage.getItem('coinRunnerBest')||0);
+let bank=Number(localStorage.getItem('coinRunnerBank')||0);
+let skin=localStorage.getItem('coinRunnerSkin')||'blue';
 
 function rnd(a,b){return Math.random()*(b-a)+a}
-function rect(el){return{x:el.offsetLeft,y:el.offsetTop,w:el.offsetWidth,h:el.offsetHeight}}
+function rect(el){
+  const r=el.getBoundingClientRect(),g=game.getBoundingClientRect();
+  return{x:r.left-g.left,y:r.top-g.top,w:r.width,h:r.height};
+}
 function hit(a,b){return a.x<b.x+b.w&&a.x+a.w>b.x&&a.y<b.y+b.h&&a.y+a.h>b.y}
-
+function applySkin(){
+  player.style.background = skin==='green'?'#35d07f':skin==='purple'?'#b06cff':'#4aa3ff';
+}
 function reset(){
   cfg=settings[difficulty];
-  px=game.clientWidth/2-17; py=game.clientHeight/2-17;
-  score=0; hp=cfg.hp; canMove=false; moveUntil=0;
-  player.style.left=px+'px'; player.style.top=py+'px';
-  scoreEl.textContent=score; hpEl.textContent=hp;
-  coinsBox.innerHTML=''; enemiesBox.innerHTML=''; coins=[]; enemies=[];
-  placeCoin(); makeEnemies();
-  statusEl.textContent='🟡 코인을 먹어야 움직임';
+  px=game.clientWidth/2-17;py=game.clientHeight/2-17;
+  score=0;hp=cfg.hp;canMove=false;moveUntil=0;combo=0;lastCoinTime=0;shieldUntil=0;speedUntil=0;
+  player.classList.remove('shielded');applySkin();
+  player.style.left=px+'px';player.style.top=py+'px';
+  scoreEl.textContent=score;hpEl.textContent=hp;
+  coinsBox.innerHTML='';enemiesBox.innerHTML='';coins=[];enemies=[];items=[];
+  powerStatus.textContent='';comboStatus.textContent='';
+  placeCoin();makeEnemies();
 }
 function placeCoin(){
-  const c=document.createElement('div'); c.className='coin';
+  const c=document.createElement('div');c.className='coin';
   c.style.left=rnd(30,Math.max(31,game.clientWidth-54))+'px';
   c.style.top=rnd(30,Math.max(31,game.clientHeight-54))+'px';
-  coinsBox.appendChild(c); coins=[c];
+  coinsBox.appendChild(c);coins=[c];
 }
 function makeEnemies(){
   for(let i=0;i<cfg.enemies;i++){
-    const e=document.createElement('div'); e.className='enemy';
+    const e=document.createElement('div');e.className='enemy';
     const size=difficulty==='hell'?38:32;
-    e.style.width=size+'px'; e.style.height=size+'px';
+    e.style.width=size+'px';e.style.height=size+'px';
     e.style.left=rnd(80,Math.max(81,game.clientWidth-size-20))+'px';
     e.style.top=rnd(50,Math.max(51,game.clientHeight-size-20))+'px';
-    e.vx=rnd(-1,1)||.7; e.vy=rnd(-1,1)||.7;
-    enemiesBox.appendChild(e); enemies.push(e);
+    e.vx=rnd(-1,1)||.7;e.vy=rnd(-1,1)||.7;
+    enemiesBox.appendChild(e);enemies.push(e);
   }
 }
 function activateMove(){
-  canMove=true; moveUntil=performance.now()+cfg.coinTime*1000;
+  canMove=true;moveUntil=performance.now()+cfg.coinTime*1000;
   statusEl.textContent='🟢 이동 가능!';
 }
 function loseHp(){
-  hp--; hpEl.textContent=hp;
-  px=game.clientWidth/2-17; py=game.clientHeight/2-17;
-  canMove=false; moveUntil=0;
-  if(hp<=0){running=false;statusEl.textContent='💀 게임 오버';setTimeout(showMenu,700)}
-  else statusEl.textContent='🔴 맞음! 코인을 먹어야 움직임';
+  if(performance.now()<shieldUntil)return;
+  hp--;hpEl.textContent=hp;combo=0;
+  px=game.clientWidth/2-17;py=game.clientHeight/2-17;
+  canMove=false;moveUntil=0;
+  comboStatus.textContent='';
+  if(hp<=0){
+    running=false;
+    if(score>best){best=score;localStorage.setItem('coinRunnerBest',best)}
+    bank+=score;localStorage.setItem('coinRunnerBank',bank);
+    statusEl.textContent='💀 게임 오버';
+    setTimeout(showMenu,700);
+  }else statusEl.textContent='🔴 맞음! 코인을 먹어야 움직임';
+}
+function spawnRareItem(){
+  if(items.length)return;
+  // 정말 가끔만 등장: 코인을 먹을 때 약 4% 확률
+  if(Math.random()>0.04)return;
+  const types=['heal','speed','shield'];
+  const type=types[Math.floor(Math.random()*types.length)];
+  const el=document.createElement('div');el.className='powerItem power-'+type;
+  el.textContent=type==='heal'?'♥':type==='speed'?'⚡':'🛡';
+  el.style.left=rnd(35,Math.max(36,game.clientWidth-65))+'px';
+  el.style.top=rnd(35,Math.max(36,game.clientHeight-65))+'px';
+  el.dataset.type=type;game.appendChild(el);items=[el];
+}
+function collectItem(el){
+  const type=el.dataset.type;el.remove();items=[];
+  if(type==='heal'){hp=Math.min(cfg.hp,hp+1);hpEl.textContent=hp;powerStatus.textContent='❤️ HP +1';}
+  if(type==='speed'){speedUntil=performance.now()+5000;powerStatus.textContent='⚡ 5초간 속도 UP';}
+  if(type==='shield'){shieldUntil=performance.now()+5000;player.classList.add('shielded');powerStatus.textContent='🛡 5초 무적';}
 }
 function loop(now){
   if(!running)return;
-  const dt=Math.min((now-last)/1000,.04); last=now;
+  const dt=Math.min((now-last)/1000,.04);last=now;
   if(canMove&&now>=moveUntil){canMove=false;statusEl.textContent='⛔ 이동 정지! 코인을 먹어야 함'}
+  if(speedUntil&&now>=speedUntil){speedUntil=0;powerStatus.textContent=''}
+  if(shieldUntil&&now>=shieldUntil){shieldUntil=0;player.classList.remove('shielded');powerStatus.textContent=''}
   if(canMove){
-    let dx=(keys.right?1:0)-(keys.left?1:0);
-    let dy=(keys.down?1:0)-(keys.up?1:0);
-    if(dx||dy){const len=Math.hypot(dx,dy);px+=dx/len*cfg.speed*dt;py+=dy/len*cfg.speed*dt}
+    let dx=(keys.right?1:0)-(keys.left?1:0),dy=(keys.down?1:0)-(keys.up?1:0);
+    if(dx||dy){
+      const len=Math.hypot(dx,dy);
+      const sp=cfg.speed*(speedUntil?1.55:1);
+      px+=dx/len*sp*dt;py+=dy/len*sp*dt;
+    }
   }
-  px=Math.max(0,Math.min(game.clientWidth-34,px));
-  py=Math.max(0,Math.min(game.clientHeight-34,py));
+  px=Math.max(0,Math.min(game.clientWidth-34,px));py=Math.max(0,Math.min(game.clientHeight-34,py));
   player.style.left=px+'px';player.style.top=py+'px';
 
   for(const e of enemies){
-    let ex=e.offsetLeft+e.vx*cfg.speed*.22*dt*60;
-    let ey=e.offsetTop+e.vy*cfg.speed*.22*dt*60;
+    let ex=e.offsetLeft+e.vx*cfg.speed*.22*dt*60,ey=e.offsetTop+e.vy*cfg.speed*.22*dt*60;
     if(ex<0||ex+e.offsetWidth>game.clientWidth)e.vx*=-1;
     if(ey<0||ey+e.offsetHeight>game.clientHeight)e.vy*=-1;
     e.style.left=Math.max(0,Math.min(game.clientWidth-e.offsetWidth,ex))+'px';
     e.style.top=Math.max(0,Math.min(game.clientHeight-e.offsetHeight,ey))+'px';
     if(hit({x:px,y:py,w:34,h:34},rect(e))){loseHp();if(!running)return}
   }
-  if(coins[0]&&hit({x:px,y:py,w:34,h:34},rect(coins[0]))){
-    coins[0].remove();coins=[];score++;scoreEl.textContent=score;activateMove();
-    setTimeout(()=>{if(running&&!coins.length)placeCoin()},150);
+
+  if(coins[0]){
+    const c=rect(coins[0]);
+    const pc={x:px+17,y:py+17},cc={x:c.x+c.w/2,y:c.y+c.h/2};
+    if(Math.hypot(pc.x-cc.x,pc.y-cc.y)<32){
+      coins[0].remove();coins=[];
+      const nowSec=performance.now()/1000;
+      combo=(nowSec-lastCoinTime<3)?combo+1:1;lastCoinTime=nowSec;
+      score+=combo>=5?2:1;scoreEl.textContent=score;
+      comboStatus.textContent=combo>=2?'🔥 '+combo+' COMBO':'';
+      activateMove();spawnRareItem();
+      setTimeout(()=>{if(running&&!coins.length)placeCoin()},150);
+    }
   }
+
+  if(items[0]&&hit({x:px,y:py,w:34,h:34},rect(items[0])))collectItem(items[0]);
   requestAnimationFrame(loop);
 }
 function startGame(){
-  startScreen.classList.add('hidden');gameScreen.classList.remove('hidden');
+  startScreen.classList.add('hidden');shopScreen.classList.add('hidden');gameScreen.classList.remove('hidden');
   reset();running=true;last=performance.now();requestAnimationFrame(loop);
 }
 function showMenu(){
-  running=false; gameScreen.classList.add('hidden'); startScreen.classList.remove('hidden');
+  running=false;gameScreen.classList.add('hidden');shopScreen.classList.add('hidden');startScreen.classList.remove('hidden');
   menuInfo.textContent='코인을 먹고 움직이는 동안 빨간 적을 피하세요.';
+}
+function openShop(){
+  running=false;startScreen.classList.add('hidden');shopScreen.classList.remove('hidden');shopCoins.textContent='보유 점수: '+bank;
 }
 document.getElementById('playBtn').onclick=startGame;
 document.getElementById('howBtn').onclick=()=>{
-  menuInfo.innerHTML='🟡 코인을 먹으면 잠시 이동 가능<br>🔴 빨간 적에 닿으면 HP 감소<br>🎯 코인을 많이 먹을수록 점수 증가';
+  menuInfo.innerHTML='🟡 코인을 먹으면 잠시 이동 가능<br>🔴 빨간 적에 닿으면 HP 감소<br>🔥 연속 획득 시 콤보<br>🎁 아이템은 아주 가끔 등장<br>🏆 최고 점수와 상점 스킨은 저장됨';
 };
 document.getElementById('difficultyBtn').onclick=()=>{
   const names={easy:'쉬움',normal:'보통',hard:'어려움',hell:'지옥'};
   difficulty=difficulty==='easy'?'normal':difficulty==='normal'?'hard':difficulty==='hard'?'hell':'easy';
-  menuInfo.textContent='난이도: '+names[difficulty]+' (버튼을 누를 때마다 변경)';
+  menuInfo.textContent='난이도: '+names[difficulty];
 };
 document.getElementById('menuBtn').onclick=showMenu;
-
+document.getElementById('shopBtn').onclick=openShop;
+document.getElementById('shopBack').onclick=showMenu;
+document.querySelectorAll('[data-skin]').forEach(btn=>{
+  btn.onclick=()=>{
+    const s=btn.dataset.skin,cost=s==='blue'?0:s==='green'?30:60;
+    if(skin===s){shopCoins.textContent='이미 장착됨 · 보유 점수: '+bank;return}
+    if(bank<cost){shopCoins.textContent='점수가 부족함 · 보유: '+bank;return}
+    bank-=cost;skin=s;localStorage.setItem('coinRunnerBank',bank);localStorage.setItem('coinRunnerSkin',skin);
+    shopCoins.textContent='장착 완료 · 보유 점수: '+bank;
+  };
+});
 function setKey(k,v){keys[k]=v}
 const map={up:'up',down:'down',left:'left',right:'right'};
 for(const id in map){
@@ -196,5 +270,6 @@ addEventListener('keyup',e=>{
   if(k)setKey(k,false);
 });
 </script>
+
 </body>
 </html>
