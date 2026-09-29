@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESCAPE</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:#101114;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;touch-action:none}
+#game{width:100vw;height:100vh;position:relative;background:#202226}
+#hud{position:absolute;top:10px;left:10px;right:10px;z-index:20;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+.badge{background:#111c;padding:8px 11px;border:1px solid #555;border-radius:10px;font-weight:800}
+#room{position:absolute;inset:0;background:#292b30;overflow:hidden}
+.wall{position:absolute;background:#575b63}
+.w1{left:0;top:0;width:100%;height:18px}.w2{left:0;bottom:0;width:100%;height:18px}
+.w3{left:0;top:0;width:18px;height:100%}.w4{right:0;top:0;width:18px;height:100%}
+#player{position:absolute;width:34px;height:34px;background:#55aaff;border-radius:9px;box-shadow:0 0 18px #55aaff88;z-index:8}
+.obj{position:absolute;z-index:7;display:flex;align-items:center;justify-content:center;font-weight:900}
+.key{width:30px;height:30px;border-radius:50%;background:#ffd83d;color:#222}
+.switch{width:42px;height:42px;border-radius:10px;background:#8c54e8}
+.switch.on{background:#45d483}
+.door{width:50px;height:78px;background:#774829;border:4px solid #bd8a5a;border-radius:6px;font-size:10px}
+.door.open{background:#3a9a62}
+.trap{width:38px;height:38px;background:#d63b35;border-radius:6px}
+#message{position:absolute;top:58px;left:50%;transform:translateX(-50%);z-index:20;background:#111d;padding:7px 12px;border-radius:9px;white-space:nowrap;font-weight:800}
+#joy{position:absolute;left:24px;bottom:24px;width:132px;height:132px;border-radius:50%;background:#ffffff18;border:2px solid #ffffff35;z-index:30}
+#stick{position:absolute;left:50%;top:50%;width:62px;height:62px;margin:-31px;border-radius:50%;background:#ffffff55;border:2px solid #ffffff70}
+#start,#win,#lose{position:absolute;inset:0;z-index:50;background:#000b;display:flex;align-items:center;justify-content:center;text-align:center;padding:22px}
+.card{max-width:390px;background:#18191c;border:1px solid #555;border-radius:20px;padding:24px}
+.card h1{margin:0 0 8px;font-size:34px}.card p{line-height:1.6;color:#ccc}
+button{border:0;border-radius:13px;padding:14px 22px;background:#428cff;color:#fff;font-weight:900;font-size:16px}
+.hidden{display:none!important}
+@media(min-width:800px){#joy{left:40px;bottom:40px}}
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="hud">
+    <div class="badge">ROOM <span id="stage">1</span>/5</div>
+    <div class="badge">⏱ <span id="time">60</span></div>
+    <div class="badge">🔑 <span id="keyState">0/1</span></div>
+  </div>
+  <div id="message">🔑 열쇠 → ⚡ 스위치 → 🚪 문</div>
+  <div id="room">
+    <div class="wall w1"></div><div class="wall w2"></div><div class="wall w3"></div><div class="wall w4"></div>
+    <div id="player"></div>
+    <div id="objects"></div>
+  </div>
+
+  <div id="joy" aria-label="가상 조이스틱"><div id="stick"></div></div>
+
+  <div id="start">
+    <div class="card">
+      <h1>🔐 ESCAPE</h1>
+      <p>화면 왼쪽 아래 <b>조이스틱을 직접 끌어서</b> 움직여.</p>
+      <p>🔑 열쇠를 먹고 → ⚡ 스위치를 켜고 → 🚪 문으로 들어가면 다음 방.</p>
+      <p>🔴 함정에 닿으면 5초가 깎인다.</p>
+      <button id="startBtn">게임 시작</button>
+    </div>
+  </div>
+
+  <div id="win" class="hidden"><div class="card">
+    <h1>🎉 탈출!</h1><p id="winText"></p><button id="nextBtn">다음 방</button>
+  </div></div>
+
+  <div id="lose" class="hidden"><div class="card">
+    <h1>💀 시간 초과</h1><p>인간은 왜 시간 제한이 있으면 갑자기 손이 굳는가.</p><button id="retryBtn">다시 하기</button>
+  </div></div>
+</div>
+
+<script>
+const levels=[
+ {time:60,key:[25,28],sw:[68,25],door:[87,63],traps:[[45,50],[63,70]]},
+ {time:55,key:[73,24],sw:[23,72],door:[88,23],traps:[[48,28],[52,65],[76,55]]},
+ {time:50,key:[26,72],sw:[75,70],door:[87,24],traps:[[35,45],[55,30],[68,50],[42,75]]},
+ {time:45,key:[75,73],sw:[25,25],door:[86,72],traps:[[30,40],[50,25],[58,65],[72,42],[40,72]]},
+ {time:40,key:[75,25],sw:[25,70],door:[87,50],traps:[[35,30],[48,55],[60,30],[70,65],[30,60],[55,78]]}
+];
+
+const room=document.getElementById('room'),player=document.getElementById('player');
+const objects=document.getElementById('objects'),timeEl=document.getElementById('time');
+const stageEl=document.getElementById('stage'),keyState=document.getElementById('keyState');
+const message=document.getElementById('message'),joy=document.getElementById('joy'),stick=document.getElementById('stick');
+let level=0,time=60,key=false,sw=false,running=false,last=0,raf=0,timer=0;
+let px=15,py=50,vx=0,vy=0,trapLock=new Set(),pointerId=null;
+
+function makeObj(cls,x,y,text){
+  const e=document.createElement('div'); e.className='obj '+cls;
+  e.style.left=x+'%'; e.style.top=y+'%'; e.textContent=text||''; objects.appendChild(e); return e;
+}
+function loadLevel(){
+  cancelAnimationFrame(raf); clearInterval(timer); trapLock.clear();
+  const L=levels[level]; time=L.time; key=false; sw=false; px=15; py=50; vx=vy=0;
+  stageEl.textContent=level+1; timeEl.textContent=time; keyState.textContent='0/1';
+  objects.innerHTML='';
+  const k=makeObj('key',L.key[0],L.key[1],'🔑');
+  const s=makeObj('switch',L.sw[0],L.sw[1],'⚡');
+  const d=makeObj('door',L.door[0],L.door[1],'LOCK');
+  const traps=L.traps.map((p,i)=>makeObj('trap',p[0],p[1],'⚠'));
+  player.style.left=px+'%'; player.style.top=py+'%';
+  message.textContent='🔑 열쇠 → ⚡ 스위치 → 🚪 문';
+  running=true;
+  timer=setInterval(()=>{if(!running)return; time--; timeEl.textContent=time;if(time<=0)loseGame()},1000);
+  function loop(ts){
+    if(!running)return;
+    const dt=Math.min((ts-last)/1000||0,0.035); last=ts;
+    move(dt);
+    raf=requestAnimationFrame(loop);
+  }
+  last=performance.now(); raf=requestAnimationFrame(loop);
+  window._current={k,s,d,traps};
+}
+function rectHit(a,b){
+  const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();
+  return ar.left<br.right&&ar.right>br.left&&ar.top<br.bottom&&ar.bottom>br.top;
+}
+function move(dt){
+  const speed=190;
+  px=Math.max(3,Math.min(94,px+vx*speed*dt/room.clientWidth*100));
+  py=Math.max(5,Math.min(90,py+vy*speed*dt/room.clientHeight*100));
+  player.style.left=px+'%';player.style.top=py+'%';
+  const o=window._current;
+  if(!key&&rectHit(player,o.k)){key=true;o.k.remove();keyState.textContent='1/1';message.textContent='⚡ 이제 스위치를 켜!'}
+  if(!sw&&rectHit(player,o.s)){sw=true;o.s.classList.add('on');o.s.textContent='✓';message.textContent='🚪 문으로 가!'}
+  if(sw&&rectHit(player,o.d)){winGame();return}
+  o.traps.forEach((t,i)=>{
+    if(rectHit(player,t)){
+      if(!trapLock.has(i)){trapLock.add(i);time=Math.max(0,time-5);timeEl.textContent=time;message.textContent='⚠️ 함정! -5초';}
+    }else trapLock.delete(i);
+  });
+}
+function winGame(){
+  running=false;clearInterval(timer);cancelAnimationFrame(raf);
+  document.getElementById('winText').textContent=level===4?'5개 방 전부 탈출했다. 인간치고 꽤 괜찮군.':'방 '+(level+1)+' 탈출 성공!';
+  document.getElementById('win').classList.remove('hidden');
+}
+function loseGame(){
+  running=false;clearInterval(timer);cancelAnimationFrame(raf);
+  document.getElementById('lose').classList.remove('hidden');
+}
+function start(){document.getElementById('start').classList.add('hidden');loadLevel()}
+document.getElementById('startBtn').onclick=start;
+document.getElementById('retryBtn').onclick=()=>{document.getElementById('lose').classList.add('hidden');loadLevel()};
+document.getElementById('nextBtn').onclick=()=>{
+  document.getElementById('win').classList.add('hidden');
+  if(level<4){level++;loadLevel()}else{level=0;document.getElementById('start').classList.remove('hidden')}
+};
+
+const keys={};
+addEventListener('keydown',e=>{
+  keys[e.key.toLowerCase()]=true;
+  if(['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(e.key.toLowerCase()))e.preventDefault();
+});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+
+function keyboardInput(){
+  let x=0,y=0;
+  if(keys.w||keys.arrowup)y-=1;if(keys.s||keys.arrowdown)y+=1;
+  if(keys.a||keys.arrowleft)x-=1;if(keys.d||keys.arrowright)x+=1;
+  if(x||y){const n=Math.hypot(x,y);vx=x/n;vy=y/n}else if(!pointerId){vx=vy=0}
+  requestAnimationFrame(keyboardInput);
+}
+keyboardInput();
+
+function setJoy(e){
+  const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+  let dx=e.clientX-cx,dy=e.clientY-cy,max=r.width/2-31;
+  const n=Math.hypot(dx,dy);if(n>max){dx=dx/n*max;dy=dy/n*max}
+  stick.style.transform=`translate(${dx}px,${dy}px)`;
+  vx=dx/max;vy=dy/max;
+}
+joy.addEventListener('pointerdown',e=>{pointerId=e.pointerId;joy.setPointerCapture(pointerId);setJoy(e)});
+joy.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)setJoy(e)});
+function endJoy(e){if(e.pointerId!==pointerId)return;pointerId=null;stick.style.transform='';vx=vy=0}
+joy.addEventListener('pointerup',endJoy);joy.addEventListener('pointercancel',endJoy);
+</script>
+</body>
+</html>
