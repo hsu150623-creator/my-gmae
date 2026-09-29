@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>ESCAPE: LOCKED ROOMS</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;background:#0d0e10;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden;touch-action:none}
+#game{width:100vw;height:100vh;position:relative;background:#181a1e}
+#room{position:absolute;inset:0;background:#292c31;overflow:hidden}
+.wall{position:absolute;background:#50555e;border:1px solid #666b73}
+.outer1{left:0;top:0;width:100%;height:18px}.outer2{left:0;bottom:0;width:100%;height:18px}
+.outer3{left:0;top:0;width:18px;height:100%}.outer4{right:0;top:0;width:18px;height:100%}
+#hud{position:absolute;top:10px;left:10px;right:10px;z-index:30;display:flex;gap:7px;justify-content:space-between;flex-wrap:wrap;pointer-events:none}
+.badge{background:#101216dd;border:1px solid #555;padding:7px 9px;border-radius:9px;font-weight:850}
+#message{position:absolute;top:55px;left:50%;transform:translateX(-50%);z-index:30;background:#101216dd;padding:7px 11px;border-radius:9px;white-space:nowrap;font-size:13px;font-weight:800}
+#player{position:absolute;width:32px;height:32px;border-radius:8px;background:#51a8ff;box-shadow:0 0 16px #51a8ff99;z-index:20}
+.obj{position:absolute;z-index:15;display:flex;align-items:center;justify-content:center;font-weight:900;user-select:none}
+.key{width:29px;height:29px;border-radius:50%;background:#ffd63d;color:#222}
+.key.hiddenKey{display:none}
+.switch{width:42px;height:42px;border-radius:10px;background:#824bd9}
+.switch.on{background:#3ed17b}
+.door{width:50px;height:76px;border:4px solid #c08b5b;background:#704323;border-radius:6px;font-size:10px}
+.door.open{background:#3d9a63}
+.trap{width:36px;height:36px;border-radius:6px;background:#cf3d38}
+.wall.inwall{z-index:12;border-radius:4px}
+#joy{position:absolute;left:22px;bottom:22px;width:132px;height:132px;border-radius:50%;background:#ffffff16;border:2px solid #ffffff32;z-index:40}
+#stick{position:absolute;left:50%;top:50%;width:62px;height:62px;margin:-31px;border-radius:50%;background:#ffffff55;border:2px solid #ffffff70}
+#hintBtn{position:absolute;right:18px;bottom:28px;z-index:40;border:0;border-radius:12px;padding:13px 15px;background:#e0a52b;color:#171717;font-weight:900}
+#hint{position:absolute;right:18px;bottom:84px;z-index:40;max-width:220px;background:#101216ee;border:1px solid #777;border-radius:12px;padding:10px;font-size:13px;line-height:1.5}
+.overlay{position:absolute;inset:0;z-index:60;background:#000b;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px}
+.card{max-width:400px;background:#17191d;border:1px solid #555;border-radius:20px;padding:23px}
+.card h1{margin:0 0 8px;font-size:32px}.card p{color:#ccc;line-height:1.55}
+button.main{border:0;border-radius:13px;padding:14px 22px;background:#428cff;color:white;font-weight:900;font-size:16px}
+.hidden{display:none!important}
+@media(min-width:800px){#joy{left:40px;bottom:40px}#hintBtn{right:40px;bottom:45px}}
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="room">
+    <div class="wall outer1"></div><div class="wall outer2"></div><div class="wall outer3"></div><div class="wall outer4"></div>
+    <div id="maze"></div><div id="objects"></div><div id="player"></div>
+  </div>
+
+  <div id="hud">
+    <div class="badge">ROOM <span id="stage">1</span>/6</div>
+    <div class="badge">⏱ <span id="time">75</span></div>
+    <div class="badge">🔑 <span id="keys">0/2</span></div>
+    <div class="badge">⚡ <span id="switchState">OFF</span></div>
+  </div>
+  <div id="message">🔑 열쇠 2개를 모두 찾아라</div>
+  <button id="hintBtn">💡 힌트 (-5초)</button>
+  <div id="hint" class="hidden"></div>
+
+  <div id="joy"><div id="stick"></div></div>
+
+  <div id="start" class="overlay"><div class="card">
+    <h1>🔐 ESCAPE</h1>
+    <p><b>이번엔 좀 제대로 어렵게 만들었다.</b></p>
+    <p>각 방에서 <b>열쇠 여러 개</b>를 전부 모으고 ⚡ 스위치를 켠 다음 🚪 문으로 탈출.</p>
+    <p>💡 힌트는 위치를 알려주지만 <b>5초</b>를 먹는다.<br>🔴 함정은 닿을 때마다 <b>5초</b> 감소.</p>
+    <button class="main" id="startBtn">게임 시작</button>
+  </div></div>
+
+  <div id="win" class="overlay hidden"><div class="card">
+    <h1>🎉 방 탈출!</h1><p id="winText"></p><button class="main" id="nextBtn">다음 방</button>
+  </div></div>
+
+  <div id="lose" class="overlay hidden"><div class="card">
+    <h1>💀 시간 초과</h1><p>힌트 버튼을 너무 사랑한 대가다.</p><button class="main" id="retryBtn">방 다시 하기</button>
+  </div></div>
+</div>
+
+<script>
+const levels=[
+ {time:75,keys:[[25,25],[72,72]],sw:[72,25],door:[88,50],traps:[[47,48],[60,72]],walls:[[35,15,5,55],[55,45,5,55]]},
+ {time:70,keys:[[24,73],[73,24],[72,73]],sw:[25,25],door:[88,25],traps:[[35,28],[52,70],[72,48]],walls:[[30,15,5,55],[55,30,5,55],[72,15,5,35]]},
+ {time:65,keys:[[22,25],[50,75],[76,25]],sw:[76,75],door:[88,72],traps:[[30,45],[48,25],[62,55],[72,35]],walls:[[25,35,45,5],[40,55,45,5],[60,15,5,35]]},
+ {time:60,keys:[[24,25],[24,72],[73,25],[73,72]],sw:[50,48],door:[88,48],traps:[[35,30],[50,25],[65,30],[35,68],[65,68]],walls:[[43,10,5,35],[43,55,5,35],[58,10,5,35],[58,55,5,35]]},
+ {time:55,keys:[[22,22],[50,75],[78,22],[78,75]],sw:[22,50],door:[88,50],traps:[[32,38],[50,28],[68,38],[50,60],[32,68],[68,68]],walls:[[28,15,5,65],[67,15,5,65],[40,45,20,5]]},
+ {time:50,keys:[[23,22],[23,72],[50,47],[77,22],[77,72]],sw:[50,78],door:[90,47],traps:[[30,35],[45,25],[60,35],[72,50],[45,68],[60,75]],walls:[[35,15,5,30],[35,55,5,30],[60,15,5,30],[60,55,5,30],[45,42,15,5]]}
+];
+
+const room=document.getElementById('room'),player=document.getElementById('player');
+const objects=document.getElementById('objects'),maze=document.getElementById('maze');
+const stageEl=document.getElementById('stage'),timeEl=document.getElementById('time'),keysEl=document.getElementById('keys');
+const switchEl=document.getElementById('switchState'),message=document.getElementById('message');
+const hint=document.getElementById('hint'),joy=document.getElementById('joy'),stick=document.getElementById('stick');
+let level=0,time=75,keyCount=0,needKeys=2,sw=false,running=false,last=0,raf=0,timer=0;
+let px=10,py=50,vx=0,vy=0,pointerId=null,trapLock=new Set(),current=null;
+
+function el(cls,x,y,text=''){
+ const e=document.createElement('div');e.className='obj '+cls;e.style.left=x+'%';e.style.top=y+'%';e.textContent=text;objects.appendChild(e);return e;
+}
+function wall(x,y,w,h){
+ const e=document.createElement('div');e.className='wall inwall';e.style.left=x+'%';e.style.top=y+'%';e.style.width=w+'%';e.style.height=h+'%';maze.appendChild(e);
+}
+function load(){
+ cancelAnimationFrame(raf);clearInterval(timer);trapLock.clear();hint.classList.add('hidden');
+ const L=levels[level];time=L.time;needKeys=L.keys.length;keyCount=0;sw=false;px=8;py=50;vx=vy=0;
+ stageEl.textContent=level+1;timeEl.textContent=time;keysEl.textContent=`0/${needKeys}`;switchEl.textContent='OFF';
+ objects.innerHTML='';maze.innerHTML='';
+ const keyEls=L.keys.map(p=>el('key',p[0],p[1],'🔑'));
+ const swEl=el('switch',L.sw[0],L.sw[1],'⚡');
+ const doorEl=el('door',L.door[0],L.door[1],'LOCK');
+ const traps=L.traps.map(p=>el('trap',p[0],p[1],'⚠'));
+ L.walls.forEach(w=>wall(...w));
+ player.style.left=px+'%';player.style.top=py+'%';
+ message.textContent=`🔑 열쇠 ${needKeys}개를 모두 찾아라`;
+ current={keyEls,swEl,doorEl,traps};
+ running=true;
+ timer=setInterval(()=>{if(!running)return;time--;timeEl.textContent=time;if(time<=0)lose()},1000);
+ last=performance.now();raf=requestAnimationFrame(loop);
+}
+function loop(ts){
+ if(!running)return;
+ const dt=Math.min((ts-last)/1000||0,.035);last=ts;
+ move(dt);raf=requestAnimationFrame(loop);
+}
+function hit(a,b){
+ const A=a.getBoundingClientRect(),B=b.getBoundingClientRect();
+ return A.left<B.right&&A.right>B.left&&A.top<B.bottom&&A.bottom>B.top;
+}
+function blocked(nx,ny){
+ const oldL=player.style.left,oldT=player.style.top;
+ player.style.left=nx+'%';player.style.top=ny+'%';
+ const p=player.getBoundingClientRect();
+ let bad=false;
+ document.querySelectorAll('.inwall').forEach(w=>{
+   const r=w.getBoundingClientRect();
+   if(p.left<r.right&&p.right>r.left&&p.top<r.bottom&&p.bottom>r.top)bad=true;
+ });
+ player.style.left=oldL;player.style.top=oldT;
+ return bad;
+}
+function move(dt){
+ const speed=185;
+ let nx=px+vx*speed*dt/room.clientWidth*100,ny=py+vy*speed*dt/room.clientHeight*100;
+ nx=Math.max(3,Math.min(94,nx));ny=Math.max(5,Math.min(91,ny));
+ if(!blocked(nx,py))px=nx;
+ if(!blocked(px,ny))py=ny;
+ player.style.left=px+'%';player.style.top=py+'%';
+
+ current.keyEls.forEach((k,i)=>{
+   if(k&&!k.classList.contains('hiddenKey')&&hit(player,k)){
+     k.classList.add('hiddenKey');keyCount++;keysEl.textContent=`${keyCount}/${needKeys}`;
+     message.textContent=keyCount===needKeys?'⚡ 이제 스위치를 켜!':`🔑 열쇠 ${needKeys-keyCount}개 남음`;
+   }
+ });
+ if(!sw&&keyCount===needKeys&&hit(player,current.swEl)){
+   sw=true;current.swEl.classList.add('on');current.swEl.textContent='✓';switchEl.textContent='ON';
+   current.doorEl.classList.add('open');current.doorEl.textContent='OPEN';message.textContent='🚪 문으로 탈출!';
+ }
+ if(sw&&hit(player,current.doorEl))win();
+ current.traps.forEach((t,i)=>{
+   if(hit(player,t)){if(!trapLock.has(i)){trapLock.add(i);time=Math.max(0,time-5);timeEl.textContent=time;message.textContent='⚠️ 함정! -5초'}}
+   else trapLock.delete(i);
+ });
+}
+function win(){
+ running=false;clearInterval(timer);cancelAnimationFrame(raf);
+ document.getElementById('winText').textContent=level===5?'6개 방 전부 탈출 성공. 이 정도면 인간도 쓸모가 있군.':'ROOM '+(level+1)+' 클리어! 다음 방은 더 더럽다.';
+ document.getElementById('win').classList.remove('hidden');
+}
+function lose(){running=false;clearInterval(timer);cancelAnimationFrame(raf);document.getElementById('lose').classList.remove('hidden')}
+function start(){document.getElementById('start').classList.add('hidden');load()}
+document.getElementById('startBtn').onclick=start;
+document.getElementById('retryBtn').onclick=()=>{document.getElementById('lose').classList.add('hidden');load()};
+document.getElementById('nextBtn').onclick=()=>{
+ document.getElementById('win').classList.add('hidden');
+ if(level<5){level++;load()}else{level=0;document.getElementById('start').classList.remove('hidden')}
+};
+
+document.getElementById('hintBtn').onclick=()=>{
+ if(!running)return;
+ time=Math.max(0,time-5);timeEl.textContent=time;
+ const remaining=current.keyEls.map((k,i)=>!k.classList.contains('hiddenKey')?`열쇠 ${i+1}: 화면 ${k.style.left}, ${k.style.top}`:null).filter(Boolean);
+ let text=remaining.join('<br>');
+ if(keyCount===needKeys&&!sw)text+=' <br>스위치: '+current.swEl.style.left+', '+current.swEl.style.top;
+ hint.innerHTML='💡 <b>힌트</b><br>'+text;
+ hint.classList.remove('hidden');
+};
+
+const keys={};
+addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true});
+addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+function keyboard(){
+ if(running&&!pointerId){
+  let x=0,y=0;if(keys.w||keys.arrowup)y--;if(keys.s||keys.arrowdown)y++;if(keys.a||keys.arrowleft)x--;if(keys.d||keys.arrowright)x++;
+  if(x||y){const n=Math.hypot(x,y);vx=x/n;vy=y/n}else vx=vy=0;
+ }
+ requestAnimationFrame(keyboard);
+}
+keyboard();
+
+function joyMove(e){
+ const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+ let dx=e.clientX-cx,dy=e.clientY-cy,max=r.width/2-31,n=Math.hypot(dx,dy);
+ if(n>max){dx=dx/n*max;dy=dy/n*max}
+ stick.style.transform=`translate(${dx}px,${dy}px)`;vx=dx/max;vy=dy/max;
+}
+joy.addEventListener('pointerdown',e=>{pointerId=e.pointerId;joy.setPointerCapture(pointerId);joyMove(e)});
+joy.addEventListener('pointermove',e=>{if(e.pointerId===pointerId)joyMove(e)});
+function end(e){if(e.pointerId===pointerId){pointerId=null;vx=vy=0;stick.style.transform=''}}
+joy.addEventListener('pointerup',end);joy.addEventListener('pointercancel',end);
+</script>
+</body>
+</html>
